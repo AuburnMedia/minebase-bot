@@ -81,22 +81,16 @@ async def hello(ctx):
     response = "Hello!"
     await ctx.send(response)
 
-# Command to add a strike to a user
+# Simplified command to add a strike to a user
 @bot.command(name='strike', help='Adds a strike to a user. Usage: !strike username')
 async def strike(ctx, user_input: str):
-    # Attempt to convert the user input to a user object
-    user = None
+    # Prepend @ to the user_input to create a mention
+    user_input = f"@{user_input}"
 
-    # Check if the input is a mention
-    if user_input.startswith('<@') and user_input.endswith('>'):
-        user_id = int(user_input[2:-1].replace('!', ''))
-        user = await bot.fetch_user(user_id)
-    else:
-        # Try to resolve the user by username or nickname
-        user = discord.utils.get(ctx.guild.members, name=user_input) or \
-               discord.utils.get(ctx.guild.members, display_name=user_input)
-    
-    # If user doesn't exist, send an error message
+    # Attempt to resolve the user
+    user = discord.utils.get(ctx.guild.members, mention=user_input)
+
+    # If the user isn't found, send an error message
     if not user:
         await ctx.send(f"User '{user_input}' not found. Please make sure you spelled the name correctly.")
         return
