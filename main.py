@@ -19,12 +19,15 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable intents to allow the bot to read message content
 intents.guilds = True
 intents.guild_messages = True
+intents.members = True  # Required to fetch member list
 
 # Create a bot instance with a command prefix and specified intents
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Dictionary to store strikes for each user by their user ID
 strikes = {}
+# Dictionary to store members by name for quick lookup
+members = {}
 
 # Function to log a strike to the log channel
 async def log_strike(user, strike_count, channel):
@@ -63,6 +66,12 @@ async def on_ready():
         print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Please check the channel ID.")
         return
     
+    # Load members into a dictionary
+    for guild in bot.guilds:
+        for member in guild.members:
+            members[member.name.lower()] = member
+            members[member.display_name.lower()] = member
+    
     await load_strikes_from_logs(log_channel)
     
     print(f'{bot.user} is connected to Discord!')
@@ -84,11 +93,10 @@ async def hello(ctx):
 # Simplified command to add a strike to a user
 @bot.command(name='strike', help='Adds a strike to a user. Usage: !strike username')
 async def strike(ctx, user_input: str):
-    # Prepend @ to the user_input to create a mention
-    user_input = f"@{user_input}"
+    user_input_lower = user_input.lower()
 
-    # Attempt to resolve the user
-    user = discord.utils.get(ctx.guild.members, mention=user_input)
+    # Find the user in the preloaded members dictionary
+    user = members.get(user_input_lower)
 
     # If the user isn't found, send an error message
     if not user:
