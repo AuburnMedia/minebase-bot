@@ -28,7 +28,10 @@ strikes = {}
 
 # Function to log a strike to the log channel
 async def log_strike(user, strike_count, channel):
-    await channel.send(f'{user.mention} has {strike_count} strike(s).')
+    embed = discord.Embed(title="Strike Logged", color=discord.Color.red())
+    embed.add_field(name="User", value=user.mention, inline=True)
+    embed.add_field(name="Total Strikes", value=str(strike_count), inline=True)
+    await channel.send(embed=embed)
 
 # Function to load strikes from the log channel
 async def load_strikes_from_logs(channel):
@@ -73,8 +76,13 @@ async def strike(ctx, user: discord.User):
     else:
         strikes[user_id] = 1
     
-    response = f'{user.mention} has received a strike. Total strikes: {strikes[user_id]}'
-    await ctx.send(response)
+    # Create the embed for the strike message
+    embed = discord.Embed(title="Strike Issued", color=discord.Color.orange())
+    embed.add_field(name="User", value=user.mention, inline=True)
+    embed.add_field(name="Total Strikes", value=str(strikes[user_id]), inline=True)
+    
+    # Send the embed in the current channel
+    await ctx.send(embed=embed)
     
     # Log the strike to the log channel
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
