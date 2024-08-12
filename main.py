@@ -38,47 +38,21 @@ async def load_strikes_from_logs(channel):
     global strikes
     strikes.clear()  # Clear existing strikes to avoid duplication
     async for message in channel.history(limit=1000):  # Adjust the limit as needed
-        # Check if the message has embeds
         if message.embeds:
             for embed in message.embeds:
-                # Check if the embed has the title "Strike Logged"
                 if embed.title == "Strike Logged":
-                    # Extract the "User" and "Total Strikes" fields
                     user_field = next((field for field in embed.fields if field.name == "User"), None)
                     strikes_field = next((field for field in embed.fields if field.name == "Total Strikes"), None)
                     
                     if user_field and strikes_field:
-                        # Extract user ID from the user mention
-                        user_mention = user_field.value  # Expected format: <@!1234567890>
+                        user_mention = user_field.value
                         try:
                             user_id_str = ''.join(filter(str.isdigit, user_mention))
                             user_id = int(user_id_str)
                             strike_count = int(strikes_field.value)
-                            # Update the strikes dictionary
                             strikes[user_id] = strike_count
                         except ValueError:
-                            # Handle cases where parsing fails
                             print(f"Failed to parse strike information from message ID {message.id}")
-        else:
-            # Optional: Handle legacy text-based strike logs if any
-            content = message.content
-            if 'Strike Logged' in content and 'User:' in content and 'Total Strikes:' in content:
-                # Parse the text-based log
-                lines = content.split('\n')
-                user_line = next((line for line in lines if line.startswith('User:')), None)
-                strikes_line = next((line for line in lines if line.startswith('Total Strikes:')), None)
-                
-                if user_line and strikes_line:
-                    user_mention = user_line.split('User:')[1].strip()
-                    strikes_value = strikes_line.split('Total Strikes:')[1].strip()
-                    try:
-                        user_id_str = ''.join(filter(str.isdigit, user_mention))
-                        user_id = int(user_id_str)
-                        strike_count = int(strikes_value)
-                        # Update the strikes dictionary
-                        strikes[user_id] = strike_count
-                    except ValueError:
-                        print(f"Failed to parse legacy strike information from message ID {message.id}")
 
 # Event handler for when the bot is ready
 @bot.event
@@ -89,10 +63,8 @@ async def on_ready():
         print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Please check the channel ID.")
         return
     
-    # Load strikes from the log channel
     await load_strikes_from_logs(log_channel)
     
-    # Print current strikes to the console
     print(f'{bot.user} is connected to Discord!')
     print('Current strike information:')
     if strikes:
@@ -110,8 +82,25 @@ async def hello(ctx):
     await ctx.send(response)
 
 # Command to add a strike to a user
-@bot.command(name='strike', help='Adds a strike to a user. Usage: !strike @username')
-async def strike(ctx, user: discord.User):
+@bot.command(name='strike', help='Adds a strike to a user. Usage: !strike username')
+async def strike(ctx, user_input: str):
+    # Attempt to convert the user input to a user object
+    user = None
+
+    # Check if the input is a mention
+    if user_input.startswith('<@') and user_input.endswith('>'):
+        user_id = int(user_input[2:-1].replace('!', ''))
+        user = await bot.fetch_user(user_id)
+    else:
+        # Try to resolve the user by username or nickname
+        user = discord.utils.get(ctx.guild.members, name=user_input) or \
+               discord.utils.get(ctx.guild.members, display_name=user_input)
+    
+    # If user doesn't exist, send an error message
+    if not user:
+        await ctx.send(f"User '{user_input}' not found. Please make sure you spelled the name correctly.")
+        return
+
     user_id = user.id
     if user_id in strikes:
         strikes[user_id] += 1
@@ -144,20 +133,14 @@ async def nuke(ctx):
 # Command to repeat a user's message as an embed with the author's name and avatar
 @bot.command(name='say', help='Repeats your input as an embed. Usage: !say your message here')
 async def say(ctx, *, message: str):
-    # Create an embed with the user's message
     embed = discord.Embed(description=message, color=discord.Color.blue())
     embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
-    
-    # Send the embed in the current channel
     await ctx.send(embed=embed)
 
 # Command to repeat a user's message as an embed without any author information
 @bot.command(name='sayraw', help='Repeats your input as a raw embed. Usage: !sayraw your message here')
 async def sayraw(ctx, *, message: str):
-    # Create an embed with just the user's message
     embed = discord.Embed(description=message, color=discord.Color.green())
-    
-    # Send the embed in the current channel
     await ctx.send(embed=embed)
 
 # Run the bot with the token
