@@ -1,8 +1,6 @@
 #!./bot-env/bin/python3
 
 import os
-import random
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -22,6 +20,7 @@ intents.message_content = True
 intents.guilds = True
 intents.guild_messages = True
 intents.members = True  # Required to fetch member list
+intents.reactions = True  # Required to handle reactions
 
 # Create a bot instance with a command prefix and specified intents
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -30,6 +29,8 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 strikes = {}
 # Dictionary to store members by name for quick lookup
 members = {}
+# Dictionary to map message IDs to reaction-role configurations
+reaction_roles = {}
 
 # Sync the commands to Discord
 @bot.event
@@ -175,6 +176,84 @@ async def say(interaction: discord.Interaction, message: str):
 async def sayraw(interaction: discord.Interaction, message: str):
     embed = discord.Embed(description=message, color=discord.Color.green())
     await interaction.response.send_message(embed=embed)
+
+# Slash command to set up reaction roles
+@bot.tree.command(name='setupreactionroles', description='Set up reaction roles with emojis and roles.')
+@app_commands.describe(
+    emoji1='First emoji', role1='First role',
+    emoji2='Second emoji', role2='Second role',
+    emoji3='Third emoji', role3='Third role',
+    emoji4='Fourth emoji', role4='Fourth role',
+    emoji5='Fifth emoji', role5='Fifth role',
+    emoji6='Sixth emoji', role6='Sixth role',
+    emoji7='Seventh emoji', role7='Seventh role'
+)
+async def setupreactionroles(interaction: discord.Interaction,
+                             emoji1: str, role1: discord.Role,
+                             emoji2: str = None, role2: discord.Role = None,
+                             emoji3: str = None, role3: discord.Role = None,
+                             emoji4: str = None, role4: discord.Role = None,
+                             emoji5: str = None, role5: discord.Role = None,
+                             emoji6: str = None, role6: discord.Role = None,
+                             emoji7: str = None, role7: discord.Role = None):
+    # Create a list of tuples (emoji, role) based on the provided arguments
+    roles = [(emoji1, role1), (emoji2, role2), (emoji3, role3), (emoji4, role4), 
+             (emoji5, role5), (emoji6, role6), (emoji7, role7)]
+    
+    # Filter out the None values
+    roles = [(emoji, role) for emoji, role in roles if emoji and role]
+
+    # Build the embed message
+    embed = discord.Embed(title="Reaction Roles", description="React with the corresponding emoji to get the role", color=discord.Color.blue())
+    for emoji, role in roles:
+        embed.add_field(name=f"{emoji}", value=f"{role.mention}", inline=False)
+
+    # Send the embed message
+    message = await interaction.response.send_message(embed=embed)
+    message = await interaction.original_response()  # Fetch the original message
+    
+    # Add reactions to the message and update the reaction_roles dictionary
+    for emoji, role in roles:
+        try:
+            await message.add_reaction(emoji)
+            # Map the message ID to the role configuration
+            if message.id not in reaction_roles:
+                reaction_roles[message.id] = {}
+            reaction_roles[message.id][emoji] = role
+        except discord.HTTPException:
+            await interaction.followup.send(f"Failed to add reaction: {emoji}", ephemeral=True)
+
+# Event listener for on_reaction_add
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return  # Ignore reactions from bots
+    
+    # Check if the reaction is in the reaction_roles mapping
+    if reaction.message.id in reaction_roles:
+        role = reaction_roles[reaction.message.id].get(str(reaction.emoji))
+        if role:
+            try:
+                await user.add_roles(role)
+                await reaction.message.channel.send(f"Added {role.mention} to {user.mention}", delete_after=5)
+            except discord.Forbidden:
+                print(f"Missing permissions to add role {role.name} to {user.name}")
+
+# Event listener for on_reaction_remove
+@bot.event
+async def on_reaction_remove(reaction, user):
+    if user.bot:
+        return  # Ignore reactions from bots
+    
+    # Check if the reaction is in the reaction_roles mapping
+    if reaction.message.id in reaction_roles:
+        role = reaction_roles[reaction.message.id].get(str(reaction.emoji))
+        if role:
+            try:
+                await user.remove_roles(role)
+                await reaction.message.channel.send(f"Removed {role.mention} from {user.mention}", delete_after=5)
+            except discord.Forbidden:
+                print(f"Missing permissions to remove role {role.name} from {user.name}")
 
 # Run the bot with the token
 if TOKEN:
