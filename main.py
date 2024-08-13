@@ -5,6 +5,7 @@ import random
 
 import discord
 from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 
 # Load the .env file that contains your token
@@ -16,7 +17,7 @@ LOG_CHANNEL_ID = 1271302668945719439  # Replace with your actual log channel ID
 
 # Define intents
 intents = discord.Intents.default()
-intents.message_content = True  # Enable intents to allow the bot to read message content
+intents.message_content = True
 intents.guilds = True
 intents.guild_messages = True
 intents.members = True  # Required to fetch member list
@@ -28,6 +29,39 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 strikes = {}
 # Dictionary to store members by name for quick lookup
 members = {}
+
+# Sync the commands to Discord
+@bot.event
+async def on_ready():
+    print(f'{bot.user} is connected to Discord!')
+    # Load members into a dictionary
+    for guild in bot.guilds:
+        for member in guild.members:
+            members[member.name.lower()] = member
+            members[member.display_name.lower()] = member
+    
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel is None:
+        print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Please check the channel ID.")
+        return
+    
+    await load_strikes_from_logs(log_channel)
+    
+    print('Current strike information:')
+    if strikes:
+        for user_id, count in strikes.items():
+            user = await bot.fetch_user(user_id)
+            user_name = user.name if user else f"User ID {user_id}"
+            print(f'{user_name}: {count} strike(s)')
+    else:
+        print('No strikes recorded.')
+    
+    # Sync the slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands.")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
 # Function to log a strike to the log channel
 async def log_strike(user, strike_count, channel):
@@ -57,52 +91,10 @@ async def load_strikes_from_logs(channel):
                         except ValueError:
                             print(f"Failed to parse strike information from message ID {message.id}")
 
-# Event handler for when the bot is ready
-@bot.event
-async def on_ready():
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-    
-    if log_channel is None:
-        print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Please check the channel ID.")
-        return
-    
-    # Load members into a dictionary
-    for guild in bot.guilds:
-        for member in guild.members:
-            members[member.name.lower()] = member
-            members[member.display_name.lower()] = member
-    
-    await load_strikes_from_logs(log_channel)
-    
-    print(f'{bot.user} is connected to Discord!')
-    print('Current strike information:')
-    if strikes:
-        for user_id, count in strikes.items():
-            user = await bot.fetch_user(user_id)
-            user_name = user.name if user else f"User ID {user_id}"
-            print(f'{user_name}: {count} strike(s)')
-    else:
-        print('No strikes recorded.')
-
-# Command that responds with hello
-@bot.command(name='hello', help='Responds with hello')
-async def hello(ctx):
-    response = "Hello!"
-    await ctx.send(response)
-
-# Simplified command to add a strike to a user
-@bot.command(name='strike', help='Adds a strike to a user. Usage: !strike username')
-async def strike(ctx, user_input: str):
-    user_input_lower = user_input.lower()
-
-    # Find the user in the preloaded members dictionary
-    user = members.get(user_input_lower)
-
-    # If the user isn't found, send an error message
-    if not user:
-        await ctx.send(f"User '{user_input}' not found. Please make sure you spelled the name correctly.")
-        return
-
+# Slash command to add a strike to a user
+@bot.tree.command(name='strike', description='Adds a strike to a user.')
+@app_commands.describe(user='The user to strike')
+async def strike(interaction: discord.Interaction, user: discord.Member):
     user_id = user.id
     if user_id in strikes:
         strikes[user_id] += 1
@@ -115,7 +107,7 @@ async def strike(ctx, user_input: str):
     embed.add_field(name="Total Strikes", value=str(strikes[user_id]), inline=True)
     
     # Send the embed in the current channel
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
     
     # Log the strike to the log channel
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -124,26 +116,27 @@ async def strike(ctx, user_input: str):
     else:
         print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Cannot log strike.")
 
-# Command to delete all messages in the current channel
-@bot.command(name='nuke', help='Deletes all messages in the current channel.')
-@commands.has_permissions(manage_messages=True)
-async def nuke(ctx):
-    await ctx.channel.purge()
-    confirmation_message = await ctx.send("Channel nuked! 💣")
-    await confirmation_message.delete(delay=5)  # Delete the confirmation message after 5 seconds
+# Slash command to delete all messages in the current channel
+@bot.tree.command(name='nuke', description='Deletes all messages in the current channel.')
+@app_commands.checks.has_permissions(manage_messages=True)
+async def nuke(interaction: discord.Interaction):
+    await interaction.channel.purge()
+    await interaction.response.send_message("Channel nuked! 💣", ephemeral=True)
 
-# Command to repeat a user's message as an embed with the author's name and avatar
-@bot.command(name='say', help='Repeats your input as an embed. Usage: !say your message here')
-async def say(ctx, *, message: str):
+# Slash command to repeat a user's message as an embed with the author's name and avatar
+@bot.tree.command(name='say', description='Repeats your input as an embed.')
+@app_commands.describe(message='The message to repeat')
+async def say(interaction: discord.Interaction, message: str):
     embed = discord.Embed(description=message, color=discord.Color.blue())
-    embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url if ctx.author.avatar else None)
-    await ctx.send(embed=embed)
+    embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.avatar.url if interaction.user.avatar else None)
+    await interaction.response.send_message(embed=embed)
 
-# Command to repeat a user's message as an embed without any author information
-@bot.command(name='sayraw', help='Repeats your input as a raw embed. Usage: !sayraw your message here')
-async def sayraw(ctx, *, message: str):
+# Slash command to repeat a user's message as an embed without any author information
+@bot.tree.command(name='sayraw', description='Repeats your input as a raw embed.')
+@app_commands.describe(message='The message to repeat')
+async def sayraw(interaction: discord.Interaction, message: str):
     embed = discord.Embed(description=message, color=discord.Color.green())
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 # Run the bot with the token
 if TOKEN:
