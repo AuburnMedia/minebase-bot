@@ -6,6 +6,7 @@ import random
 import discord
 from discord.ext import commands
 from discord import app_commands
+from discord.ui import Button, View
 from dotenv import load_dotenv
 
 # Load the .env file that contains your token
@@ -91,6 +92,39 @@ async def load_strikes_from_logs(channel):
                         except ValueError:
                             print(f"Failed to parse strike information from message ID {message.id}")
 
+# A view with buttons for confirming or canceling the strike
+class ConfirmStrikeView(View):
+    def __init__(self, user, strike_count, interaction):
+        super().__init__()
+        self.user = user
+        self.strike_count = strike_count
+        self.interaction = interaction
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user == self.interaction.user:
+            await interaction.response.defer()  # Acknowledge the button press
+            strikes[self.user.id] = self.strike_count
+            embed = discord.Embed(title="Strike Confirmed", color=discord.Color.orange())
+            embed.add_field(name="User", value=self.user.mention, inline=True)
+            embed.add_field(name="Total Strikes", value=str(self.strike_count), inline=True)
+            # Send a public message confirming the strike
+            await self.interaction.followup.send(embed=embed)
+            log_channel = bot.get_channel(LOG_CHANNEL_ID)
+            if log_channel:
+                await log_strike(self.user, self.strike_count, log_channel)
+        else:
+            await interaction.response.send_message("You cannot confirm this strike.", ephemeral=True)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user == self.interaction.user:
+            await interaction.response.defer()  # Acknowledge the button press
+            strikes[self.user.id] -= 1  # Remove the strike
+            await interaction.followup.send(f"Strike on {self.user.mention} has been canceled.", ephemeral=True)
+        else:
+            await interaction.response.send_message("You cannot cancel this strike.", ephemeral=True)
+
 # Slash command to add a strike to a user
 @bot.tree.command(name='strike', description='Adds a strike to a user.')
 @app_commands.describe(user='The user to strike')
@@ -100,21 +134,25 @@ async def strike(interaction: discord.Interaction, user: discord.Member):
         strikes[user_id] += 1
     else:
         strikes[user_id] = 1
-    
-    # Create the embed for the strike message
-    embed = discord.Embed(title="Strike Issued", color=discord.Color.orange())
-    embed.add_field(name="User", value=user.mention, inline=True)
-    embed.add_field(name="Total Strikes", value=str(strikes[user_id]), inline=True)
-    
-    # Send the embed in the current channel
-    await interaction.response.send_message(embed=embed)
-    
-    # Log the strike to the log channel
-    log_channel = bot.get_channel(LOG_CHANNEL_ID)
-    if log_channel:
-        await log_strike(user, strikes[user_id], log_channel)
+
+    if strikes[user_id] == 3:
+        # Create the embed for the confirmation
+        embed = discord.Embed(title="Strike Confirmation", description=f"{user.mention} has reached 3 strikes. Continuing will punish the user. Confirm or cancel?", color=discord.Color.orange())
+        view = ConfirmStrikeView(user, strikes[user_id], interaction)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     else:
-        print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Cannot log strike.")
+        # Create the embed for the strike message
+        embed = discord.Embed(title="Strike Issued", color=discord.Color.orange())
+        embed.add_field(name="User", value=user.mention, inline=True)
+        embed.add_field(name="Total Strikes", value=str(strikes[user_id]), inline=True)
+        await interaction.response.send_message(embed=embed)
+
+        # Log the strike to the log channel
+        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            await log_strike(user, strikes[user_id], log_channel)
+        else:
+            print(f"Log channel with ID {LOG_CHANNEL_ID} not found. Cannot log strike.")
 
 # Slash command to delete all messages in the current channel
 @bot.tree.command(name='nuke', description='Deletes all messages in the current channel.')
