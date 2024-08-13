@@ -206,7 +206,7 @@ async def setupreactionroles(interaction: discord.Interaction,
     # Build the embed message
     embed = discord.Embed(title="Reaction Roles", description="React with the corresponding emoji to get the role", color=discord.Color.blue())
     for emoji, role in roles:
-        embed.add_field(name=f"{emoji}", value=f"{role.mention}", inline=False)
+        embed.add_field(name="\u200b", value=f"{emoji} : {role.mention}", inline=False)
 
     # Send the embed message
     message = await interaction.response.send_message(embed=embed)
@@ -235,7 +235,12 @@ async def on_reaction_add(reaction, user):
         if role:
             try:
                 await user.add_roles(role)
-                await reaction.message.channel.send(f"Added {role.mention} to {user.mention}", delete_after=5)
+                # Send an ephemeral message confirming the role assignment
+                await reaction.message.channel.send(
+                    f"Assigned {role.mention} to {user.mention}", 
+                    delete_after=5, 
+                    ephemeral=True
+                )
             except discord.Forbidden:
                 print(f"Missing permissions to add role {role.name} to {user.name}")
 
@@ -251,7 +256,12 @@ async def on_reaction_remove(reaction, user):
         if role:
             try:
                 await user.remove_roles(role)
-                await reaction.message.channel.send(f"Removed {role.mention} from {user.mention}", delete_after=5)
+                # Send an ephemeral message confirming the role removal
+                await reaction.message.channel.send(
+                    f"Removed {role.mention} from {user.mention}", 
+                    delete_after=5, 
+                    ephemeral=True
+                )
             except discord.Forbidden:
                 print(f"Missing permissions to remove role {role.name} from {user.name}")
 
